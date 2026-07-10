@@ -12,4 +12,4 @@ cuaderno físico que usa hoy.
 
 ## Estado
 
-En fase de diseño. Aún no hay código — ver el checklist de progreso en `CLAUDE.md`.
+En fase de diseño. Aún no hay código.
