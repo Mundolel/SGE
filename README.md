@@ -6,7 +6,6 @@ cuaderno físico que usa hoy.
 
 ## Empezar aquí
 
-- **`CLAUDE.md`** — contexto y hoja de ruta (Claude Code lo carga automáticamente al iniciar).
 - **`docs/1-definicion-y-requisitos/`** — definición del proyecto y requisitos completos.
 - **`docs/`** — el resto de entregables del proceso, uno por carpeta (ver tabla en `CLAUDE.md`).
 - **`CONTRIBUTING.md`** — flujo de trabajo y convenciones, si se suman más personas al equipo.
