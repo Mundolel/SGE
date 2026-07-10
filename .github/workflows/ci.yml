@@ -1,0 +1,9 @@
+# Placeholder. Se completa cuando exista código y el stack esté decidido (Paso 5).
+# Idea: lint + tests en cada push/PR sobre main.
+name: CI
+on: [push, pull_request]
+jobs:
+  todo:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CI pendiente de definir tras la Arquitectura (Paso 5)"
