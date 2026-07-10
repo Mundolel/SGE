@@ -33,3 +33,9 @@ __pycache__/
 .env
 .env.*
 *.keystore
+
+# Contexto local para Claude Code — no va al repo
+CLAUDE.md
+
+# Contexto local para Claude Code — no va al repo
+CLAUDE.md
