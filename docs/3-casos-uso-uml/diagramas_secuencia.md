@@ -1,10 +1,12 @@
 # Diagramas de Secuencia
 ### Sistema de Gestión Económica — Finca Ganadera
-*Versión 1 · 9 de julio de 2026*
+*Versión 2 · 10 de julio de 2026*
 
 ---
 
-> **Nota:** Estos diagramas representan los flujos principales del sistema a nivel de análisis. Los nombres de componentes (UI, Controller, Repository, etc.) son genéricos — la tecnología concreta se define en el Paso 5. El objetivo es mostrar la interacción entre el actor y el sistema, no la arquitectura interna.
+> **Nota:** Versión alineada con la arquitectura definida en el Paso 5 (`docs/4-arquitectura/`): MVVM + Clean Architecture ligera (estilo_arquitectonico.md) y stack Kotlin/Compose/Room (ADR-001, ADR-002). Los participantes son los componentes reales de cada capa. Según la convención de indirección: los flujos CRUD van `ViewModel → Repository` directo; la lógica no trivial (balance, exportación) pasa por un Use Case. Los nombres de métodos están en inglés (convención de código); las descripciones, en español.
+>
+> **Cambios de la v2:** se eliminó la "Cola de Sincronización" de SD-01 — contradecía ADR-003, que define un modelo **local-only**: la BD local es la fuente de verdad y no hay sincronización por transacción, solo backup periódico de la BD completa a Google Drive.
 
 ## SD-01 — Registrar transacción (ingreso o egreso)
 
@@ -13,142 +15,151 @@ Cubre UC-01 y UC-02 (HU-01, HU-02).
 ```mermaid
 sequenceDiagram
     actor Admin as Administrador
-    participant UI as Pantalla de Registro
-    participant Ctrl as Controlador
-    participant Repo as Almacén Local
-    participant Sync as Cola de Sincronización
+    participant Screen as RegisterScreen
+    participant VM as RegisterViewModel
+    participant CatRepo as CategoryRepository
+    participant TxRepo as TransactionRepository
+    participant DB as Room / SQLite
 
-    Admin->>UI: Selecciona "Registrar ingreso/egreso"
-    UI->>Ctrl: solicitarFormulario(tipo)
-    Ctrl->>Repo: obtenerCategoríasActivas(tipo)
-    Repo-->>Ctrl: listaCategorías
-    Ctrl-->>UI: formulario(fecha=hoy, categorías)
-    Admin->>UI: Completa campos y confirma
+    Admin->>Screen: Selecciona "Registrar ingreso/egreso"
+    Screen->>VM: loadForm(type)
+    VM->>CatRepo: getActiveCategories(type)
+    CatRepo->>DB: SELECT categorías activas
+    DB-->>CatRepo: categories
+    CatRepo-->>VM: categories
+    VM-->>Screen: UiState(fecha = hoy, categorías)
+    Admin->>Screen: Completa campos y confirma
 
-    UI->>Ctrl: registrarTransacción(datos)
-    Ctrl->>Ctrl: validarCamposObligatorios()
+    Screen->>VM: onSave(formData)
+    VM->>VM: validate() — campos obligatorios
 
     alt Validación falla
-        Ctrl-->>UI: error("Monto es obligatorio")
-        UI-->>Admin: Muestra error
+        VM-->>Screen: UiState.error("El monto es obligatorio")
+        Screen-->>Admin: Muestra error
     else Validación exitosa
-        Ctrl->>Repo: guardarTransacción(transacción)
-        Repo-->>Ctrl: transacciónGuardada
-
-        alt Con conexión
-            Ctrl->>Sync: sincronizar(transacción)
-        else Sin conexión
-            Ctrl->>Sync: encolar(transacción)
-            Note over Sync: Se sincronizará<br/>cuando haya conexión
-        end
-
-        Ctrl-->>UI: confirmación
-        UI-->>Admin: "Transacción registrada"
+        VM->>TxRepo: save(transaction)
+        TxRepo->>DB: INSERT
+        DB-->>TxRepo: ok
+        TxRepo-->>VM: saved
+        VM-->>Screen: UiState.success
+        Screen-->>Admin: "Transacción registrada"
     end
+
+    Note over DB: La BD local es la fuente de verdad (ADR-003).<br/>El flujo es idéntico con o sin conexión (RNF-07).<br/>El backup a Google Drive lo hace WorkManager<br/>en segundo plano cuando hay conexión.
 ```
 
 ---
 
 ## SD-02 — Consultar balance general con comparación de periodos
 
-Cubre UC-03 (HU-03).
+Cubre UC-03 (HU-03). El cálculo del balance es lógica no trivial → pasa por `CalculateBalanceUseCase` (convención del estilo arquitectónico).
 
 ```mermaid
 sequenceDiagram
     actor Admin as Administrador
-    participant UI as Pantalla de Balance
-    participant Ctrl as Controlador
-    participant Repo as Almacén Local
+    participant Screen as BalanceScreen
+    participant VM as BalanceViewModel
+    participant UC as CalculateBalanceUseCase
+    participant Repo as TransactionRepository
 
-    Admin->>UI: Abre pantalla de balance
-    UI->>Ctrl: solicitarBalance(mesActual)
-    Ctrl->>Repo: obtenerTransacciones(mesActual)
-    Repo-->>Ctrl: transacciones
-    Ctrl->>Ctrl: calcular(ingresos, egresos, neto)
-    Ctrl-->>UI: balance(ingresos, egresos, neto)
-    UI-->>Admin: Muestra balance del mes
+    Admin->>Screen: Abre pantalla de balance
+    Screen->>VM: loadBalance(currentMonth)
+    VM->>UC: execute(currentMonth)
+    UC->>Repo: getTransactions(currentMonth)
+    Repo-->>UC: transactions
+    UC->>UC: aggregate(income, expenses, net)
+    UC-->>VM: Balance
+    VM-->>Screen: UiState(balance)
+    Screen-->>Admin: Muestra balance del mes
 
-    Admin->>UI: Selecciona "Comparar con mes anterior"
-    UI->>Ctrl: solicitarComparación(mesActual, mesAnterior)
-    Ctrl->>Repo: obtenerTransacciones(mesAnterior)
-    Repo-->>Ctrl: transaccionesMesAnterior
-    Ctrl->>Ctrl: calcular(ambos periodos + variación)
-    Ctrl-->>UI: comparación(actual, anterior, variación)
-    UI-->>Admin: Muestra ambos periodos lado a lado
+    Admin->>Screen: Selecciona "Comparar con mes anterior"
+    Screen->>VM: compare(currentMonth, previousMonth)
+    VM->>UC: execute(currentMonth, previousMonth)
+    UC->>Repo: getTransactions(previousMonth)
+    Repo-->>UC: previousTransactions
+    UC->>UC: aggregate ambos periodos + variación
+    UC-->>VM: BalanceComparison
+    VM-->>Screen: UiState(comparación)
+    Screen-->>Admin: Muestra ambos periodos lado a lado
 
-    Admin->>UI: Selecciona "Desglose por actividad"
-    UI->>Ctrl: solicitarDesglose(periodo)
-    Ctrl->>Ctrl: agruparPorActividad(transacciones)
-    Ctrl-->>UI: desglose(Lechería, Ganado, General)
-    UI-->>Admin: Muestra subtotales por actividad
+    Admin->>Screen: Selecciona "Desglose por actividad"
+    Screen->>VM: breakdownByActivity(period)
+    VM->>UC: executeBreakdown(period)
+    UC->>UC: groupByActivity(transactions)
+    UC-->>VM: ActivityBreakdown
+    VM-->>Screen: UiState(desglose)
+    Screen-->>Admin: Muestra subtotales (Lechería, Ganado, General)
 ```
 
 ---
 
 ## SD-03 — Editar una transacción
 
-Cubre UC-06 vía UC-05 (HU-06, HU-05).
+Cubre UC-06 vía UC-05 (HU-06, HU-05). CRUD simple → `ViewModel → Repository` sin Use Case.
 
 ```mermaid
 sequenceDiagram
     actor Admin as Administrador
-    participant UIHist as Pantalla de Historial
-    participant UIEdit as Formulario de Edición
-    participant Ctrl as Controlador
-    participant Repo as Almacén Local
+    participant Hist as HistoryScreen
+    participant Edit as EditTransactionScreen
+    participant VM as EditTransactionViewModel
+    participant Repo as TransactionRepository
 
-    Admin->>UIHist: Selecciona una transacción
-    Admin->>UIHist: Elige "Editar"
-    UIHist->>Ctrl: obtenerTransacción(id)
-    Ctrl->>Repo: buscarPorId(id)
-    Repo-->>Ctrl: transacción
-    Ctrl-->>UIEdit: formulario(datosPrecargados)
-    UIEdit-->>Admin: Muestra formulario con datos
+    Admin->>Hist: Selecciona una transacción
+    Admin->>Hist: Elige "Editar"
+    Hist->>Edit: navigate(transactionId)
+    Edit->>VM: load(transactionId)
+    VM->>Repo: getById(transactionId)
+    Repo-->>VM: transaction
+    VM-->>Edit: UiState(datos precargados)
+    Edit-->>Admin: Muestra formulario con datos
 
-    Admin->>UIEdit: Modifica campos y confirma
-    UIEdit->>Ctrl: actualizarTransacción(id, datosNuevos)
-    Ctrl->>Ctrl: validarCamposObligatorios()
+    Admin->>Edit: Modifica campos y confirma
+    Edit->>VM: onSave(transactionId, formData)
+    VM->>VM: validate() — campos obligatorios
 
     alt Validación falla
-        Ctrl-->>UIEdit: error
-        UIEdit-->>Admin: Muestra error
+        VM-->>Edit: UiState.error
+        Edit-->>Admin: Muestra error
     else Validación exitosa
-        Ctrl->>Repo: actualizar(id, datosNuevos)
-        Repo-->>Ctrl: transacciónActualizada
-        Ctrl-->>UIEdit: confirmación
-        UIEdit-->>Admin: "Transacción actualizada"
+        VM->>Repo: update(transaction)
+        Repo-->>VM: updated
+        VM-->>Edit: UiState.success
+        Edit-->>Admin: "Transacción actualizada"
     end
+
+    Note over Repo: El balance no se recalcula manualmente:<br/>BalanceScreen observa la BD vía Flow (ADR-002)<br/>y se actualiza de forma reactiva.
 ```
 
 ---
 
 ## SD-04 — Eliminar una transacción
 
-Cubre UC-06 vía UC-05 (HU-06).
+Cubre UC-06 vía UC-05 (HU-06). CRUD simple → `ViewModel → Repository` sin Use Case.
 
 ```mermaid
 sequenceDiagram
     actor Admin as Administrador
-    participant UIHist as Pantalla de Historial
-    participant Dialog as Diálogo de Confirmación
-    participant Ctrl as Controlador
-    participant Repo as Almacén Local
+    participant Hist as HistoryScreen
+    participant Dialog as ConfirmDialog
+    participant VM as HistoryViewModel
+    participant Repo as TransactionRepository
 
-    Admin->>UIHist: Selecciona una transacción
-    Admin->>UIHist: Elige "Eliminar"
-    UIHist->>Dialog: mostrarConfirmación("¿Eliminar esta transacción?")
+    Admin->>Hist: Selecciona una transacción
+    Admin->>Hist: Elige "Eliminar"
+    Hist->>Dialog: show("¿Eliminar esta transacción?")
     Dialog-->>Admin: Muestra diálogo
 
     alt Administrador confirma
         Admin->>Dialog: Confirma
-        Dialog->>Ctrl: eliminarTransacción(id)
-        Ctrl->>Repo: eliminar(id)
-        Repo-->>Ctrl: eliminada
-        Ctrl-->>UIHist: confirmación
-        UIHist-->>Admin: "Transacción eliminada"
+        Dialog->>VM: onDeleteConfirmed(transactionId)
+        VM->>Repo: delete(transactionId)
+        Repo-->>VM: deleted
+        VM-->>Hist: UiState actualizado
+        Hist-->>Admin: "Transacción eliminada"
     else Administrador cancela
         Admin->>Dialog: Cancela
-        Dialog-->>UIHist: sin cambios
+        Dialog-->>Hist: Sin cambios
     end
 ```
 
@@ -156,52 +167,55 @@ sequenceDiagram
 
 ## SD-05 — Captura por foto → extracción IA → corrección → registro
 
-Cubre UC-09 → UC-10 → UC-11 (HU-09, HU-10, HU-11). Solo aplica si se implementa el épico de IA (Could).
+Cubre UC-09 → UC-10 → UC-11 (HU-09, HU-10, HU-11). Solo aplica si se implementa el épico de IA (Could). La cámara se maneja con CameraX (ADR-001); la llamada a la API multimodal, con el componente AI Client del C4 nivel 3.
 
 ```mermaid
 sequenceDiagram
     actor Admin as Administrador
-    participant UI as Pantalla de Registro
-    participant Cam as Cámara
-    participant Ctrl as Controlador
+    participant Screen as CaptureScreen
+    participant Cam as CameraX
+    participant VM as CaptureViewModel
+    participant AI as AiClient
     participant API as API IA Multimodal
-    participant Repo as Almacén Local
+    participant Repo as TransactionRepository
 
-    Admin->>UI: Selecciona "Registrar desde foto"
-    UI->>Cam: abrirCámara()
+    Admin->>Screen: Selecciona "Registrar desde foto"
+    Screen->>Cam: openCamera()
     Admin->>Cam: Toma foto de anotación
-    Cam-->>UI: vistaPrevia(imagen)
-    UI-->>Admin: Muestra foto con "Usar" / "Volver a tomar"
+    Cam-->>Screen: preview(image)
+    Screen-->>Admin: Muestra foto con "Usar" / "Volver a tomar"
 
     alt Volver a tomar
-        Admin->>UI: "Volver a tomar"
-        UI->>Cam: abrirCámara()
+        Admin->>Screen: "Volver a tomar"
+        Screen->>Cam: openCamera()
     else Usar foto
-        Admin->>UI: "Usar foto"
+        Admin->>Screen: "Usar foto"
 
         alt Sin conexión
-            UI-->>Admin: "Esta función requiere internet"
-            Note over UI: Ofrece guardar foto<br/>o registrar manualmente
+            Screen-->>Admin: "Esta función requiere internet"
+            Note over Screen: Ofrece guardar la foto<br/>o registrar manualmente
         else Con conexión
-            UI->>Ctrl: extraerDatos(imagen)
-            Ctrl->>API: enviarImagen(imagen)
-            Note over UI: Indicador de carga
-            API-->>Ctrl: datosExtraídos(fecha, concepto, monto)
+            Screen->>VM: extractData(image)
+            VM->>AI: extract(image)
+            AI->>API: POST imagen (HTTPS)
+            Note over Screen: Indicador de carga (RNF-03)
+            API-->>AI: JSON(fecha, concepto, monto)
+            AI-->>VM: ExtractionResult
 
             alt Extracción fallida
-                Ctrl-->>UI: error("No se pudo leer la anotación")
-                UI-->>Admin: Ofrece retomar foto o registro manual
+                VM-->>Screen: UiState.error("No se pudo leer la anotación")
+                Screen-->>Admin: Ofrece retomar foto o registro manual
             else Extracción exitosa
-                Ctrl-->>UI: formularioPrellenado(datos, imagenRef)
-                UI-->>Admin: Muestra formulario + foto de referencia
+                VM-->>Screen: UiState(formulario prellenado + foto de referencia)
+                Screen-->>Admin: Muestra formulario + foto
 
-                Admin->>UI: Revisa, corrige si necesario, confirma
-                UI->>Ctrl: registrarTransacción(datosFinales)
-                Ctrl->>Ctrl: validar()
-                Ctrl->>Repo: guardar(transacción)
-                Repo-->>Ctrl: guardada
-                Ctrl-->>UI: confirmación
-                UI-->>Admin: "Transacción registrada"
+                Admin->>Screen: Revisa, corrige si es necesario, confirma
+                Screen->>VM: onSave(formData)
+                VM->>VM: validate() — mismas reglas que UC-01/UC-02
+                VM->>Repo: save(transaction)
+                Repo-->>VM: saved
+                VM-->>Screen: UiState.success
+                Screen-->>Admin: "Transacción registrada"
             end
         end
     end
@@ -211,31 +225,35 @@ sequenceDiagram
 
 ## SD-06 — Exportar reporte
 
-Cubre UC-08 (HU-08).
+Cubre UC-08 (HU-08). La generación del archivo es lógica no trivial → pasa por `ExportReportUseCase`.
 
 ```mermaid
 sequenceDiagram
     actor Admin as Administrador
-    participant UI as Pantalla de Balance/Historial
-    participant Ctrl as Controlador
-    participant Gen as Generador de Reportes
-    participant OS as Sistema Operativo
+    participant Screen as BalanceScreen / HistoryScreen
+    participant VM as ReportViewModel
+    participant UC as ExportReportUseCase
+    participant Repo as TransactionRepository
+    participant OS as Android Share Sheet
 
-    Admin->>UI: Selecciona "Exportar"
-    UI-->>Admin: Muestra opciones de formato (PDF / Excel)
-    Admin->>UI: Elige formato
+    Admin->>Screen: Selecciona "Exportar"
+    Screen-->>Admin: Muestra opciones de formato (PDF / Excel)
+    Admin->>Screen: Elige formato
 
-    UI->>Ctrl: exportar(datos, filtrosActivos, formato)
-    Ctrl->>Gen: generar(datos, formato)
+    Screen->>VM: onExport(format, activeFilters)
+    VM->>UC: execute(activeFilters, format)
+    UC->>Repo: getTransactions(activeFilters)
+    Repo-->>UC: transactions
 
     alt Sin datos
-        Gen-->>Ctrl: error("No hay datos para exportar")
-        Ctrl-->>UI: error
-        UI-->>Admin: "No hay datos para exportar"
+        UC-->>VM: EmptyDataError
+        VM-->>Screen: UiState.error
+        Screen-->>Admin: "No hay datos para exportar"
     else Con datos
-        Gen-->>Ctrl: archivo(bytes, nombreArchivo)
-        Ctrl->>OS: compartir/guardar(archivo)
-        OS-->>Admin: Muestra opciones del sistema (compartir, guardar, etc.)
+        UC->>UC: generateFile(transactions, format)
+        UC-->>VM: file(bytes, fileName)
+        VM->>OS: share(file) — Intent
+        OS-->>Admin: Opciones del sistema (compartir, guardar, etc.)
     end
 ```
 
@@ -253,3 +271,15 @@ sequenceDiagram
 | SD-06 | UC-08 | HU-08 | Should |
 
 **Nota:** UC-04 (Gestionar categorías) y UC-07 (Autenticarse) no tienen diagrama de secuencia dedicado porque sus flujos son lineales y quedan suficientemente cubiertos en las especificaciones de casos de uso. UC-12 (Reportes visuales) es análogo a SD-02 (consulta de datos + renderizado).
+
+## Mapeo participantes → arquitectura (Paso 5)
+
+| Participante | Capa | Referencia |
+|---|---|---|
+| `*Screen`, `ConfirmDialog` | UI (Compose) | estilo_arquitectonico.md — Capa UI |
+| `*ViewModel` | UI (estado vía StateFlow) | estilo_arquitectonico.md — Capa UI |
+| `CalculateBalanceUseCase`, `ExportReportUseCase` | Domain | Convención: lógica no trivial → Use Case |
+| `TransactionRepository`, `CategoryRepository` | Data | estilo_arquitectonico.md — Capa Data |
+| `Room / SQLite` | Data | ADR-002 |
+| `AiClient` | Data | C4 nivel 3 — componente AI Client (Could) |
+| `CameraX`, `Android Share Sheet` | Plataforma Android | ADR-001 |

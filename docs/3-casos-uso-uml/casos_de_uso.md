@@ -94,7 +94,7 @@ UC09 .left.> UC02 : <<extend>>
 **Flujos alternativos:**
 - **3a.** El administrador usa los valores predeterminados (fecha = hoy) → salta al paso 4.
 - **5a.** Monto vacío o inválido → el sistema muestra error y permanece en el formulario.
-- **6a.** Sin conexión → el ingreso se guarda localmente y se encola para sincronización posterior.
+- **6a.** Sin conexión → sin impacto en el flujo: la BD local es la fuente de verdad (ADR-003) y el registro queda persistido igual. El respaldo a Google Drive se realizará automáticamente cuando haya conexión (RNF-07).
 
 ---
 

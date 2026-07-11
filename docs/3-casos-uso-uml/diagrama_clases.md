@@ -1,6 +1,6 @@
 # Diagrama de Clases (Dominio)
 ### Sistema de Gestión Económica — Finca Ganadera
-*Versión 1 · 9 de julio de 2026*
+*Versión 2 · 10 de julio de 2026 — correcciones UML: atributo `activityGroup` en `Category`, multiplicidad `PhotoCapture 1 → 0..1 ExtractionResult`, notación de opcionalidad `[0..1]`*
 
 ---
 
@@ -17,8 +17,8 @@ classDiagram
         +TransactionType type
         +LocalDate date
         +Decimal amount
-        +String note?
-        +String paymentMethod?
+        +String note [0..1]
+        +String paymentMethod [0..1]
         +DateTime createdAt
         +DateTime updatedAt
     }
@@ -27,6 +27,7 @@ classDiagram
         +String id
         +String name
         +CategoryType type
+        +ActivityGroup activityGroup
         +Boolean isReserved
         +Boolean isActive
     }
@@ -66,12 +67,12 @@ classDiagram
 
     class ExtractionResult {
         +String id
-        +String rawDate?
-        +String rawConcept?
-        +String rawAmount?
-        +String suggestedCategoryId?
-        +Decimal parsedAmount?
-        +LocalDate parsedDate?
+        +String rawDate [0..1]
+        +String rawConcept [0..1]
+        +String rawAmount [0..1]
+        +String suggestedCategoryId [0..1]
+        +Decimal parsedAmount [0..1]
+        +LocalDate parsedDate [0..1]
         +DateTime processedAt
     }
 
@@ -87,7 +88,7 @@ classDiagram
     Category ..> CategoryType : tipo
     Transaction ..> TransactionType : tipo
 
-    PhotoCapture "0..1" --> "0..1" ExtractionResult : produce
+    PhotoCapture "1" --> "0..1" ExtractionResult : produce
     ExtractionResult "0..1" --> "0..1" Transaction : origina
 ```
 
@@ -117,6 +118,7 @@ Clasificación fija de las transacciones, agrupada por actividad económica. Las
 | id | String (UUID) | Sí | Identificador único |
 | name | String | Sí | Nombre de la categoría (ej. "Venta de leche") |
 | type | CategoryType | Sí | INCOME o EXPENSE |
+| activityGroup | ActivityGroup | Sí | Actividad económica a la que pertenece (DAIRY, CATTLE, GENERAL) |
 | isReserved | Boolean | Sí | `true` si es una categoría reservada |
 | isActive | Boolean | Sí | `true` si está disponible para registro. Las no reservadas siempre son `true` |
 
