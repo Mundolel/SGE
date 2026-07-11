@@ -53,7 +53,11 @@ admin --> UC08
 admin --> UC09
 admin --> UC12
 
-UC06 ..> UC05 : <<include>>
+' El hint .left.> (con "left to right direction", left = arriba) mantiene a
+' UC-05 en la misma columna que el resto del paquete; sin él, Smetana empuja
+' UC-05 a una segunda columna y la asociación admin --> UC05 rodea el diagrama
+' cruzando el paquete "Captura por IA (Could)".
+UC06 .left.> UC05 : <<include>>
 UC09 ..> UC10 : <<include>>
 UC10 ..> UC11 : <<include>>
 UC10 --> api
