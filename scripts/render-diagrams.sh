@@ -29,7 +29,9 @@ render() { # $1 = markdown file, $2 = output dir
 }
 
 sources_hash() { # sha256 of all ```plantuml blocks in a markdown file
-    awk '/^```plantuml$/{f=1;next} /^```$/{f=0} f' "$1" | sha256sum | cut -d' ' -f1
+    # sub(/\r$/,"") normalizes CRLF checkouts (Windows, core.autocrlf) so the
+    # hash is identical across platforms.
+    awk '{ sub(/\r$/, "") } /^```plantuml$/{f=1;next} /^```$/{f=0} f' "$1" | sha256sum | cut -d' ' -f1
 }
 
 check_mode=false
@@ -38,7 +40,7 @@ check_mode=false
 status=0
 shopt -s globstar nullglob
 for f in docs/**/*.md; do
-    grep -q '^```plantuml$' "$f" || continue
+    grep -q '^```plantuml' "$f" || continue
     dir="$(dirname "$f")"
     hash_file="$dir/assets/$(basename "$f").plantuml.sha256"
     current_hash="$(sources_hash "$f")"
@@ -50,7 +52,7 @@ for f in docs/**/*.md; do
             status=1
         fi
         rm -rf "$tmp"
-        stored_hash="$(cat "$hash_file" 2>/dev/null || echo "missing")"
+        stored_hash="$(tr -d ' \r\n' < "$hash_file" 2>/dev/null || echo "missing")"
         if [ "$current_hash" != "$stored_hash" ]; then
             echo "::error file=$f::Stale SVG — run scripts/render-diagrams.sh and commit the assets/ changes"
             status=1
