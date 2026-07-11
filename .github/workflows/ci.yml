@@ -1,9 +1,44 @@
-# Placeholder. Se completa cuando exista código y el stack esté decidido (Paso 5).
-# Idea: lint + tests en cada push/PR sobre main.
+# CI del proyecto.
+# Fase actual (solo docs): valida que los diagramas Mermaid de docs/ compilen,
+# para no commitear diagramas rotos.
+# Fase futura (cuando exista código en src/): agregar job Android — Gradle lint + tests
+# (stack: Kotlin + Jetpack Compose, ver ADR-001).
 name: CI
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
 jobs:
-  todo:
+  validate-mermaid:
+    name: Validate Mermaid diagrams
     runs-on: ubuntu-latest
     steps:
-      - run: echo "CI pendiente de definir tras la Arquitectura (Paso 5)"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install mermaid-cli
+        run: npm install -g @mermaid-js/mermaid-cli
+
+      - name: Validate diagrams in docs/
+        run: |
+          # Chromium en runners ubuntu-24.04 necesita --no-sandbox (restricción AppArmor)
+          echo '{"args": ["--no-sandbox", "--disable-setuid-sandbox"]}' > /tmp/puppeteer.json
+          mkdir -p /tmp/mmd-out
+          status=0
+          shopt -s globstar nullglob
+          for f in docs/**/*.md; do
+            if grep -q '```mermaid' "$f"; then
+              echo "::group::$f"
+              if ! mmdc -p /tmp/puppeteer.json -i "$f" -o "/tmp/mmd-out/$(basename "$f")"; then
+                echo "::error file=$f::Diagrama Mermaid inválido"
+                status=1
+              fi
+              echo "::endgroup::"
+            fi
+          done
+          exit $status
