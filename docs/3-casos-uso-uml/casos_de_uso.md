@@ -6,6 +6,11 @@
 
 ## Diagrama de Casos de Uso
 
+![Diagrama de casos de uso UML](assets/diagrama-casos-uso.svg)
+
+<details>
+<summary>Fuente PlantUML</summary>
+
 ```plantuml
 @startuml diagrama-casos-uso
 left to right direction
@@ -58,6 +63,10 @@ UC09 .left.> UC02 : <<extend>>
 
 @enduml
 ```
+
+</details>
+
+> **Regenerar el SVG:** tras editar el bloque PlantUML, ejecuta `scripts/render-diagrams.sh` y commitea los cambios de `assets/`. El CI falla si el SVG commiteado no corresponde a la fuente.
 
 ### Relaciones clave
 
